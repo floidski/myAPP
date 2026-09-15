@@ -280,9 +280,31 @@
       outline: none;
       color: #fff;
       font-size: 14px;
-      width: 100%;
+      flex: 1;
+      min-width: 0;
     }
     .search-field-box input::placeholder { color: var(--text-sub); }
+
+    .search-settings-toggle {
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex;
+      padding: 2px;
+    }
+    .search-settings-toggle:hover { color: #fff; }
+
+    .search-settings-panel {
+      display: none;
+      background: rgba(255,255,255,0.035);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+    .search-settings-panel.visible { display: block; }
 
     .song-list { display: flex; flex-direction: column; gap: 8px; }
     .song-card {
@@ -571,6 +593,16 @@
         <div class="search-field-box">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-sub)"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           <input type="text" id="inputSearch" placeholder="Введите название или ссылку SC...">
+          <button class="search-settings-toggle" id="btnSearchSettings" title="Настройки поиска">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+        </div>
+        <div class="search-settings-panel" id="searchSettingsPanel">
+          <div id="searchSettingsStatus" style="font-size:11.5px; color:var(--text-sub); margin-bottom:8px;">client_id ещё не определён</div>
+          <div class="modal-new-row">
+            <input type="text" id="inputClientId" placeholder="Свой client_id (необязательно)">
+            <button class="modal-btn-create" id="btnRefreshClientId">Обновить</button>
+          </div>
         </div>
         <div class="song-list" id="searchResults">
           <div style="text-align:center; color:var(--text-sub); font-size:13px; padding:20px;">Начни ввод для поиска треков...</div>
@@ -767,42 +799,133 @@
 
     volumeControl.addEventListener('input', (e) => widget.setVolume(e.target.value));
 
-    // Реальный поиск по названию трека через SoundCloud API V2
-    // Несколько client_id и CORS-прокси в запасе на случай, если один недоступен
-    const SC_CLIENT_IDS = ['iYF11A7p5p0a2948a47hZ54200h85b37', 'a3e059563d7fd3372b49b37f00a00bcf', 'LBCcHmRB8XSStWL6wKH2HPACspQlXg2P'];
+    // ===== Поиск по названию трека через SoundCloud API V2 =====
+    // Важно: весь код ниже выполняется в ВАШЕМ браузере, а не на серверах Anthropic —
+    // запросы уходят напрямую с вашего устройства (через ваш VPN, если он включён).
+    // SoundCloud периодически меняет client_id своего веб-плеера, поэтому вместо
+    // "зашитого" id мы сами вытаскиваем актуальный со страницы soundcloud.com.
     const CORS_PROXIES = [
-      (u) => u, // прямой запрос
+      (u) => u, // прямой запрос (часто сработает и без прокси)
       (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
-      (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
+      (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+      (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)
     ];
 
-    async function fetchJsonWithFallback(apiUrl) {
+    async function fetchTextWithFallback(apiUrl) {
       let lastErr;
       for (const wrap of CORS_PROXIES) {
         try {
           const res = await fetch(wrap(apiUrl));
           if (!res.ok) throw new Error('HTTP ' + res.status);
-          const data = await res.json();
-          return data;
+          return await res.text();
         } catch (err) {
           lastErr = err;
         }
       }
-      throw lastErr;
+      throw lastErr || new Error('Все прокси недоступны');
+    }
+
+    async function fetchJsonWithFallback(apiUrl) {
+      const text = await fetchTextWithFallback(apiUrl);
+      return JSON.parse(text);
+    }
+
+    const clientIdInput = document.getElementById('inputClientId');
+    const searchSettingsStatus = document.getElementById('searchSettingsStatus');
+
+    function setClientIdStatus(msg) {
+      searchSettingsStatus.textContent = msg;
+    }
+
+    function getManualClientId() {
+      return (clientIdInput.value || localStorage.getItem('sc_manual_client_id') || '').trim();
+    }
+
+    clientIdInput.value = localStorage.getItem('sc_manual_client_id') || '';
+    clientIdInput.addEventListener('change', () => {
+      localStorage.setItem('sc_manual_client_id', clientIdInput.value.trim());
+    });
+
+    document.getElementById('btnSearchSettings').addEventListener('click', () => {
+      document.getElementById('searchSettingsPanel').classList.toggle('visible');
+    });
+
+    // Автоматически вытаскиваем текущий client_id со страницы soundcloud.com,
+    // сканируя JS-бандлы плеера (тот же метод, который используют сторонние SC-клиенты)
+    async function discoverClientId() {
+      setClientIdStatus('Ищу актуальный client_id на soundcloud.com...');
+      const html = await fetchTextWithFallback('https://soundcloud.com/');
+      const scriptSrcs = Array.from(html.matchAll(/src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/g)).map(m => m[1]);
+      if (scriptSrcs.length === 0) throw new Error('Не нашли JS-бандлы плеера');
+
+      const candidates = scriptSrcs.slice(-8).reverse();
+      for (const src of candidates) {
+        try {
+          const js = await fetchTextWithFallback(src);
+          const match = js.match(/client_id\s*[:=]\s*"([a-zA-Z0-9]{20,})"/);
+          if (match) {
+            const id = match[1];
+            localStorage.setItem('sc_dynamic_client_id', id);
+            setClientIdStatus('client_id обновлён автоматически ✓');
+            return id;
+          }
+        } catch (e) { /* пробуем следующий бандл */ }
+      }
+      throw new Error('client_id не найден в бандлах');
+    }
+
+    async function refreshClientId() {
+      try {
+        return await discoverClientId();
+      } catch (err) {
+        setClientIdStatus('Не удалось обновить автоматически: ' + err.message + '. Вставьте свой client_id вручную ниже.');
+        document.getElementById('searchSettingsPanel').classList.add('visible');
+        throw err;
+      }
+    }
+
+    document.getElementById('btnRefreshClientId').addEventListener('click', () => {
+      localStorage.setItem('sc_manual_client_id', clientIdInput.value.trim());
+      if (clientIdInput.value.trim()) {
+        setClientIdStatus('Используется client_id, указанный вручную ✓');
+      } else {
+        refreshClientId();
+      }
+    });
+
+    async function getWorkingClientId(forceRefresh = false) {
+      const manual = getManualClientId();
+      if (manual) return manual;
+      if (!forceRefresh) {
+        const cached = localStorage.getItem('sc_dynamic_client_id');
+        if (cached) return cached;
+      }
+      return await refreshClientId();
     }
 
     async function searchTracksByTitle(query) {
-      let lastErr;
-      for (const clientId of SC_CLIENT_IDS) {
-        const apiUrl = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=${clientId}&limit=16`;
-        try {
-          const data = await fetchJsonWithFallback(apiUrl);
-          if (data && Array.isArray(data.collection)) return data.collection;
-        } catch (err) {
-          lastErr = err;
+      let clientId = await getWorkingClientId();
+      const runSearch = (id) => {
+        const apiUrl = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=${id}&limit=16`;
+        return fetchJsonWithFallback(apiUrl);
+      };
+
+      try {
+        const data = await runSearch(clientId);
+        if (data && Array.isArray(data.collection)) {
+          setClientIdStatus('client_id рабочий ✓');
+          return data.collection;
         }
+        throw new Error('Неожиданный ответ API');
+      } catch (err) {
+        // Если сохранённый id протух (401/403/битый JSON) — один раз обновляем и пробуем снова
+        if (!getManualClientId()) {
+          clientId = await refreshClientId();
+          const data = await runSearch(clientId);
+          if (data && Array.isArray(data.collection)) return data.collection;
+        }
+        throw err;
       }
-      throw lastErr || new Error('Поиск недоступен');
     }
 
     async function searchSoundCloud(query) {
@@ -840,7 +963,7 @@
         cacheTracks(results);
         container.innerHTML = results.map((t) => trackRowHtml(t)).join('');
       } catch (err) {
-        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Не удалось выполнить поиск. Проверьте соединение / VPN.</div>';
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Поиск не сработал: ' + escapeHtml(err.message || 'ошибка сети') + '.<br>Откройте настройки поиска (⚙) и попробуйте вставить client_id вручную.</div>';
       }
     }
 
@@ -859,6 +982,11 @@
       localStorage.setItem('sc_track_cache', JSON.stringify(trackCache));
     }
     cacheTracks(activePlaylist);
+    if (getManualClientId()) {
+      setClientIdStatus('Используется client_id, указанный вручную ✓');
+    } else if (localStorage.getItem('sc_dynamic_client_id')) {
+      setClientIdStatus('client_id найден ранее, обновится автоматически при ошибке ✓');
+    }
 
     // Избранное
     function updateFavStatus() {
