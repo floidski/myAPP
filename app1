@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>SoundCloud Glass Island</title>
+  <!-- Официальный SoundCloud Widget API -->
+  <script src="https://w.soundcloud.com/player/api.js"></script>
+  <style>
+    :root {
+      --bg: #06070a;
+      --island-bg: rgba(255, 255, 255, 0.045);
+      --island-border: rgba(255, 255, 255, 0.12);
+      --btn-glass: rgba(255, 255, 255, 0.07);
+      --btn-hover: rgba(255, 255, 255, 0.18);
+      --btn-border: rgba(255, 255, 255, 0.15);
+      --text-main: #ffffff;
+      --text-sub: rgba(255, 255, 255, 0.55);
+      --accent-pink: #f43f5e;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      background-color: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-main);
+      overflow: hidden;
+      padding: env(safe-area-inset-top, 10px) 12px env(safe-area-inset-bottom, 10px) 12px;
+      position: relative;
+    }
+
+    /* Фоновые сферы преломления */
+    .bg-sphere {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(85px);
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+    .sphere-1 { width: 340px; height: 340px; background: radial-gradient(circle, #6366f1 0%, transparent 70%); top: -40px; left: 5%; }
+    .sphere-2 { width: 360px; height: 360px; background: radial-gradient(circle, #ec4899 0%, transparent 70%); bottom: -40px; right: 5%; }
+    .sphere-3 { width: 260px; height: 260px; background: radial-gradient(circle, #8b5cf6 0%, transparent 70%); top: 45%; right: 20%; }
+
+    /* Плавающий остров */
+    .island {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 410px;
+      height: 720px;
+      max-height: 94dvh;
+      background: var(--island-bg);
+      backdrop-filter: blur(40px) saturate(200%);
+      -webkit-backdrop-filter: blur(40px) saturate(200%);
+      border-radius: 38px;
+      border: 1px solid var(--island-border);
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+      padding: 20px 20px 14px 20px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .views-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .screen-view {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.96);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow-y: auto;
+      padding-bottom: 74px;
+    }
+
+    .screen-view::-webkit-scrollbar { display: none; }
+
+    .screen-view.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1);
+    }
+
+    .view-heading {
+      font-size: 21px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      letter-spacing: -0.4px;
+    }
+
+    /* Кнопки матового стекла */
+    .glass-btn {
+      background: var(--btn-glass);
+      border: 1px solid var(--btn-border);
+      color: #fff;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      outline: none;
+      flex-shrink: 0;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+
+    .glass-btn:hover {
+      background: var(--btn-hover);
+      border-color: rgba(255, 255, 255, 0.35);
+      transform: translateY(-2px);
+    }
+
+    .glass-btn:active { transform: scale(0.95); }
+
+    /* 1. Экран плеера */
+    .now-playing-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .art-box {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      max-height: 280px;
+      border-radius: 24px;
+      margin-bottom: 16px;
+      margin-top: 4px;
+    }
+
+    .art-ambient {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      filter: blur(30px) brightness(0.8);
+      opacity: 0.7;
+      transform: scale(0.92) translateY(12px);
+      border-radius: 24px;
+      z-index: 0;
+      transition: background-image 0.4s ease;
+    }
+
+    .art-img {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 15px 35px rgba(0,0,0,0.4);
+    }
+
+    .track-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .track-titles { overflow: hidden; padding-right: 12px; }
+    .song-title { font-size: 19px; font-weight: 600; letter-spacing: -0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .song-artist { font-size: 13.5px; color: var(--text-sub); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .btn-fav { width: 44px; height: 44px; }
+    .btn-fav.active svg {
+      fill: var(--accent-pink);
+      stroke: var(--accent-pink);
+      filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.7));
+    }
+
+    /* Таймлайн */
+    .timeline-container { margin-bottom: 14px; }
+    .timeline-rail {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      cursor: pointer;
+      position: relative;
+    }
+    .timeline-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.7), #ffffff);
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+      pointer-events: none;
+    }
+    .time-digits {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-sub);
+      margin-top: 7px;
+    }
+
+    .controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .btn-action { width: 46px; height: 46px; }
+    .btn-main-play {
+      width: 68px;
+      height: 68px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .volume-strip {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 6px;
+    }
+    .vol-slider {
+      -webkit-appearance: none;
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+      outline: none;
+    }
+    .vol-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+    }
+
+    /* 2. Поиск */
+    .search-field-box {
+      display: flex;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 12px 16px;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .search-field-box input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-size: 14px;
+      width: 100%;
+    }
+    .search-field-box input::placeholder { color: var(--text-sub); }
+
+    .song-list { display: flex; flex-direction: column; gap: 8px; }
+    .song-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .song-card:hover { background: rgba(255, 255, 255, 0.08); }
+    .song-card.active-card { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.25); }
+    .song-card img { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; }
+    .song-card-text { flex: 1; overflow: hidden; }
+    .song-card-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .song-card-artist { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
+
+    /* 3. Плейлисты */
+    .playlist-mosaic { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .playlist-tile {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .playlist-tile img { width: 100%; aspect-ratio: 1/1; border-radius: 14px; object-fit: cover; margin-bottom: 8px; }
+    .playlist-tile-title { font-size: 13.5px; font-weight: 600; }
+    .playlist-tile-count { font-size: 11px; color: var(--text-sub); margin-top: 3px; }
+
+    /* Мини-плеер */
+    .mini-player-strip {
+      position: absolute;
+      bottom: 74px;
+      left: 16px;
+      right: 16px;
+      background: rgba(20, 22, 30, 0.85);
+      backdrop-filter: blur(25px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 20px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      z-index: 10;
+      transform: translateY(140%);
+      opacity: 0;
+      transition: all 0.25s ease;
+    }
+    .mini-player-strip.visible { transform: translateY(0); opacity: 1; }
+    .mini-player-strip img { width: 38px; height: 38px; border-radius: 8px; object-fit: cover; }
+    .mini-details { flex: 1; overflow: hidden; }
+    .mini-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-artist { font-size: 10.5px; color: var(--text-sub); }
+
+    /* Навигация */
+    .bottom-tab-bar {
+      height: 60px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      margin-top: auto;
+      z-index: 10;
+    }
+    .tab-button {
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      width: 60px;
+    }
+    .tab-button.active { color: #ffffff; }
+    .tab-button.active svg { stroke: #ffffff; }
+
+    #scBridgeFrame {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0.01;
+      pointer-events: none;
+      top: -200px;
+      left: -200px;
+    }
+    svg { display: block; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+  <div class="bg-sphere sphere-1"></div>
+  <div class="bg-sphere sphere-2"></div>
+  <div class="bg-sphere sphere-3"></div>
+
+  <div class="island">
+    <div class="views-wrapper">
+      
+      <!-- Плеер -->
+      <div class="screen-view active" id="screen-player">
+        <div class="now-playing-header">СЕЙЧАС ИГРАЕТ</div>
+        <div class="art-box">
+          <div class="art-ambient" id="artGlow"></div>
+          <img class="art-img" id="artImage" src="" alt="Album Art">
+        </div>
+        <div class="track-meta-row">
+          <div class="track-titles">
+            <div class="song-title" id="trackTitle">Загрузка...</div>
+            <div class="song-artist" id="trackArtist">SoundCloud</div>
+          </div>
+          <button class="glass-btn btn-fav" id="btnFav">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+          </button>
+        </div>
+        <div class="timeline-container">
+          <div class="timeline-rail" id="timelineRail"><div class="timeline-fill" id="timelineFill"></div></div>
+          <div class="time-digits"><span id="labelCurrentTime">0:00</span><span id="labelTotalTime">0:00</span></div>
+        </div>
+        <div class="controls-row">
+          <button class="glass-btn btn-action" id="btnShuffle"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg></button>
+          <button class="glass-btn btn-action" id="btnPrev"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+          <button class="glass-btn btn-main-play" id="btnPlayPause"><svg id="mainPlayIcon" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+          <button class="glass-btn btn-action" id="btnNext"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+          <button class="glass-btn btn-action" id="btnRepeat"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg></button>
+        </div>
+        <div class="volume-strip">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-sub)"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+          <input type="range" class="vol-slider" id="volumeControl" min="0" max="100" value="80">
+        </div>
+      </div>
+
+      <!-- Поиск -->
+      <div class="screen-view" id="screen-search">
+        <div class="view-heading">Поиск SoundCloud</div>
+        <div class="search-field-box">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-sub)"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="inputSearch" placeholder="Введите название или ссылку SC...">
+        </div>
+        <div class="song-list" id="searchResults">
+          <div style="text-align:center; color:var(--text-sub); font-size:13px; padding:20px;">Начни ввод для поиска треков...</div>
+        </div>
+      </div>
+
+      <!-- Любимые -->
+      <div class="screen-view" id="screen-favorites">
+        <div class="view-heading">Любимые треки</div>
+        <div class="song-list" id="favoritesResults"></div>
+      </div>
+
+      <!-- Плейлисты -->
+      <div class="screen-view" id="screen-playlists">
+        <div class="view-heading">Плейлисты</div>
+        <div class="playlist-mosaic" id="playlistsContainer"></div>
+      </div>
+
+    </div>
+
+    <!-- Мини-плеер -->
+    <div class="mini-player-strip" id="miniBar">
+      <img id="miniCover" src="" alt="Cover">
+      <div class="mini-details">
+        <div class="mini-name" id="miniTitle">...</div>
+        <div class="mini-artist" id="miniArtist">...</div>
+      </div>
+      <button class="glass-btn btn-action" id="btnMiniPlay" style="width: 38px; height: 38px;"><svg id="miniPlayIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+    </div>
+
+    <!-- Навигация -->
+    <div class="bottom-tab-bar">
+      <button class="tab-button active" data-view="screen-player">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        <span>Плеер</span>
+      </button>
+      <button class="tab-button" data-view="screen-search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span>Поиск</span>
+      </button>
+      <button class="tab-button" data-view="screen-favorites">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+        <span>Любимые</span>
+      </button>
+      <button class="tab-button" data-view="screen-playlists">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+        <span>Плейлисты</span>
+      </button>
+    </div>
+  </div>
+
+  <iframe id="scBridgeFrame" allow="autoplay" src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/signcrushesmotorist/i-was-in-love-with-you&auto_play=false"></iframe>
+
+  <script>
+    let activePlaylist = [
+      {
+        id: 'sc-1',
+        title: 'i was in love with you',
+        artist: 'sign crushes motorist',
+        cover: 'https://i1.sndcdn.com/artworks-rK8VbTzL83N5-0-t500x500.jpg',
+        url: 'https://soundcloud.com/signcrushesmotorist/i-was-in-love-with-you'
+      }
+    ];
+
+    let currentIdx = 0;
+    let isPlaying = false;
+    let totalDurationMs = 0;
+    let likedTrackIds = JSON.parse(localStorage.getItem('sc_liked_tracks') || '[]');
+
+    const iframe = document.getElementById('scBridgeFrame');
+    const widget = SC.Widget(iframe);
+
+    const artImage = document.getElementById('artImage');
+    const artGlow = document.getElementById('artGlow');
+    const trackTitle = document.getElementById('trackTitle');
+    const trackArtist = document.getElementById('trackArtist');
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const mainPlayIcon = document.getElementById('mainPlayIcon');
+    const btnMiniPlay = document.getElementById('btnMiniPlay');
+    const miniPlayIcon = document.getElementById('miniPlayIcon');
+    const timelineFill = document.getElementById('timelineFill');
+    const timelineRail = document.getElementById('timelineRail');
+    const labelCurrentTime = document.getElementById('labelCurrentTime');
+    const labelTotalTime = document.getElementById('labelTotalTime');
+    const volumeControl = document.getElementById('volumeControl');
+    const btnFav = document.getElementById('btnFav');
+    const miniBar = document.getElementById('miniBar');
+    const inputSearch = document.getElementById('inputSearch');
+
+    function formatTime(ms) {
+      if (!ms || isNaN(ms)) return '0:00';
+      const secTotal = Math.floor(ms / 1000);
+      const min = Math.floor(secTotal / 60);
+      const sec = secTotal % 60;
+      return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+    }
+
+    widget.bind(SC.Widget.Events.READY, () => {
+      loadTrackByIndex(0, false);
+      widget.setVolume(80);
+    });
+
+    widget.bind(SC.Widget.Events.PLAY, () => { isPlaying = true; updatePlayIcons(true); });
+    widget.bind(SC.Widget.Events.PAUSE, () => { isPlaying = false; updatePlayIcons(false); });
+    widget.bind(SC.Widget.Events.FINISH, () => playNext());
+
+    widget.bind(SC.Widget.Events.PLAY_PROGRESS, (p) => {
+      if (totalDurationMs > 0) {
+        timelineFill.style.width = `${(p.currentPosition / totalDurationMs) * 100}%`;
+        labelCurrentTime.textContent = formatTime(p.currentPosition);
+      }
+    });
+
+    function updatePlayIcons(playing) {
+      const pSvg = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+      const playSvg = '<path d="M8 5v14l11-7z"/>';
+      mainPlayIcon.innerHTML = playing ? pSvg : playSvg;
+      miniPlayIcon.innerHTML = playing ? pSvg : playSvg;
+    }
+
+    function loadTrackByIndex(idx, autoPlay = true) {
+      if (!activePlaylist[idx]) return;
+      currentIdx = idx;
+      const track = activePlaylist[currentIdx];
+
+      trackTitle.textContent = track.title;
+      trackArtist.textContent = track.artist;
+      artImage.src = track.cover;
+      artGlow.style.backgroundImage = `url('${track.cover}')`;
+      document.getElementById('miniTitle').textContent = track.title;
+      document.getElementById('miniArtist').textContent = track.artist;
+      document.getElementById('miniCover').src = track.cover;
+
+      updateFavStatus();
+
+      widget.load(track.url, {
+        auto_play: autoPlay,
+        callback: () => {
+          widget.getDuration((d) => { totalDurationMs = d; labelTotalTime.textContent = formatTime(d); });
+        }
+      });
+    }
+
+    function togglePlayback() { widget.toggle(); }
+    function playNext() { loadTrackByIndex((currentIdx + 1) % activePlaylist.length, true); }
+    function playPrev() { loadTrackByIndex((currentIdx - 1 + activePlaylist.length) % activePlaylist.length, true); }
+
+    btnPlayPause.addEventListener('click', togglePlayback);
+    btnMiniPlay.addEventListener('click', (e) => { e.stopPropagation(); togglePlayback(); });
+    document.getElementById('btnNext').addEventListener('click', playNext);
+    document.getElementById('btnPrev').addEventListener('click', playPrev);
+
+    timelineRail.addEventListener('click', (e) => {
+      if (!totalDurationMs) return;
+      const rect = timelineRail.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      widget.seekTo(ratio * totalDurationMs);
+    });
+
+    volumeControl.addEventListener('input', (e) => widget.setVolume(e.target.value));
+
+    // Реальный поиск через SoundCloud API V2
+    async function searchSoundCloud(query) {
+      const container = document.getElementById('searchResults');
+      if (!query.trim()) return;
+
+      if (query.includes('soundcloud.com/')) {
+        widget.load(query, { auto_play: true });
+        return;
+      }
+
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Поиск в SoundCloud...</div>';
+      try {
+        const clientId = 'iYF11A7p5p0a2948a47hZ54200h85b37';
+        const res = await fetch(`https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=${clientId}&limit=12`);
+        const data = await res.json();
+
+        if (!data.collection || data.collection.length === 0) {
+          container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Ничего не найдено</div>';
+          return;
+        }
+
+        const results = data.collection.map(t => ({
+          id: 'sc-' + t.id,
+          title: t.title,
+          artist: t.user ? t.user.username : 'Unknown',
+          cover: t.artwork_url ? t.artwork_url.replace('-large', '-t500x500.jpg') : 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=800',
+          url: t.permalink_url
+        }));
+
+        container.innerHTML = results.map((t, idx) => `
+          <div class="song-card" onclick="playSearchedTrack(${idx})">
+            <img src="${t.cover}" alt="Cover">
+            <div class="song-card-text">
+              <div class="song-card-title">${t.title}</div>
+              <div class="song-card-artist">${t.artist}</div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text-sub)"><path d="M8 5v14l11-7z"/></svg>
+          </div>
+        `).join('');
+
+        window.lastSearchResults = results;
+      } catch (err) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Ошибка сети (проверьте VPN)</div>';
+      }
+    }
+
+    window.playSearchedTrack = function(index) {
+      const track = window.lastSearchResults[index];
+      activePlaylist.unshift(track);
+      loadTrackByIndex(0, true);
+      document.querySelector('[data-view="screen-player"]').click();
+    };
+
+    let searchTimer;
+    inputSearch.addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
+      const val = e.target.value.trim();
+      searchTimer = setTimeout(() => searchSoundCloud(val), 400);
+    });
+
+    // Избранное
+    function updateFavStatus() {
+      const cur = activePlaylist[currentIdx];
+      btnFav.classList.toggle('active', cur && likedTrackIds.includes(cur.id));
+    }
+
+    btnFav.addEventListener('click', () => {
+      const cur = activePlaylist[currentIdx];
+      if (!cur) return;
+      if (likedTrackIds.includes(cur.id)) {
+        likedTrackIds = likedTrackIds.filter(id => id !== cur.id);
+      } else {
+        likedTrackIds.push(cur.id);
+      }
+      localStorage.setItem('sc_liked_tracks', JSON.stringify(likedTrackIds));
+      updateFavStatus();
+      renderFavorites();
+    });
+
+    function renderFavorites() {
+      const box = document.getElementById('favoritesResults');
+      // Для примера выводим треки из текущего плейлиста, которые в избранном
+      const liked = activePlaylist.filter(t => likedTrackIds.includes(t.id));
+      if (liked.length === 0) {
+        box.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-sub); font-size:13px;">Список любимых пуст.<br>Жмите сердечко в плеере!</div>';
+        return;
+      }
+      box.innerHTML = liked.map(t => `
+        <div class="song-card" onclick="loadTrackByIndex(activePlaylist.findIndex(x => x.id === '${t.id}'), true)">
+          <img src="${t.cover}" alt="Art">
+          <div class="song-card-text"><div class="song-card-title">${t.title}</div><div class="song-card-artist">${t.artist}</div></div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#f43f5e" stroke="#f43f5e"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+        </div>
+      `).join('');
+    }
+
+    // Плейлисты-подборки
+    const playlists = [
+      { name: 'Slowcore & Sad', count: 'Релизы', cover: 'https://i1.sndcdn.com/artworks-rK8VbTzL83N5-0-t500x500.jpg', url: 'https://soundcloud.com/signcrushesmotorist/i-was-in-love-with-you' },
+      { name: 'Lo-Fi Chill', count: 'Подборка', cover: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=800', url: 'https://soundcloud.com/signcrushesmotorist/better-off' }
+    ];
+
+    function renderPlaylists() {
+      document.getElementById('playlistsContainer').innerHTML = playlists.map(p => `
+        <div class="playlist-tile" onclick="widget.load('${p.url}', {auto_play: true}); document.querySelector('[data-view=\\'screen-player\\']').click();">
+          <img src="${p.cover}" alt="PL">
+          <div class="playlist-tile-title">${p.name}</div>
+          <div class="playlist-tile-count">${p.count}</div>
+        </div>
+      `).join('');
+    }
+
+    // Переключение экранов
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const screenViews = document.querySelectorAll('.screen-view');
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.getAttribute('data-view');
+        tabButtons.forEach(b => b.classList.remove('active'));
+        screenViews.forEach(v => v.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(target).classList.add('active');
+
+        if (target !== 'screen-player') miniBar.classList.add('visible');
+        else miniBar.classList.remove('visible');
+      });
+    });
+
+    miniBar.addEventListener('click', () => document.querySelector('[data-view="screen-player"]').click());
+
+    renderPlaylists();
+    renderFavorites();
+  </script>
+</body>
+</html>
