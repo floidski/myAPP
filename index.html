@@ -805,24 +805,46 @@
     // SoundCloud периодически меняет client_id своего веб-плеера, поэтому вместо
     // "зашитого" id мы сами вытаскиваем актуальный со страницы soundcloud.com.
     const CORS_PROXIES = [
-      (u) => u, // прямой запрос (часто сработает и без прокси)
-      (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
-      (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-      (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)
+      { label: 'прямой запрос', wrap: (u) => u },
+      { label: 'isomorphic-git', wrap: (u) => 'https://cors.isomorphic-git.org/' + u },
+      { label: 'corsproxy.io', wrap: (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u) },
+      { label: 'allorigins.win', wrap: (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+      { label: 'codetabs', wrap: (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
+      { label: 'cors.eu.org', wrap: (u) => 'https://cors.eu.org/' + u }
     ];
 
+    async function fetchWithTimeout(url, ms) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), ms);
+      try {
+        return await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // Если страница открыта как локальный файл (file://), браузер блокирует
+    // почти все сетевые запросы к https-адресам — это самая частая причина "Failed to fetch"
+    const isFileProtocol = location.protocol === 'file:';
+
     async function fetchTextWithFallback(apiUrl) {
-      let lastErr;
-      for (const wrap of CORS_PROXIES) {
+      const attempts = [];
+      for (const { label, wrap } of CORS_PROXIES) {
         try {
-          const res = await fetch(wrap(apiUrl));
+          const res = await fetchWithTimeout(wrap(apiUrl), 6000);
           if (!res.ok) throw new Error('HTTP ' + res.status);
-          return await res.text();
+          const text = await res.text();
+          if (!text || text.length < 2) throw new Error('пустой ответ');
+          return text;
         } catch (err) {
-          lastErr = err;
+          attempts.push(label + ': ' + (err.name === 'AbortError' ? 'таймаут' : (err.message || 'ошибка сети')));
         }
       }
-      throw lastErr || new Error('Все прокси недоступны');
+      const details = attempts.join(' | ');
+      const err = new Error(isFileProtocol
+        ? 'файл открыт как file:// — браузер блокирует такие запросы (' + details + ')'
+        : details);
+      throw err;
     }
 
     async function fetchJsonWithFallback(apiUrl) {
@@ -982,7 +1004,10 @@
       localStorage.setItem('sc_track_cache', JSON.stringify(trackCache));
     }
     cacheTracks(activePlaylist);
-    if (getManualClientId()) {
+    if (isFileProtocol) {
+      setClientIdStatus('⚠ Файл открыт напрямую (file://) — браузер блокирует сетевые запросы к SoundCloud. Загрузите файл на любой хостинг (Netlify, GitHub Pages и т.п.) или откройте через локальный сервер, например "python -m http.server" в папке с файлом, и зайдите по http://localhost:8000.');
+      document.getElementById('searchSettingsPanel').classList.add('visible');
+    } else if (getManualClientId()) {
       setClientIdStatus('Используется client_id, указанный вручную ✓');
     } else if (localStorage.getItem('sc_dynamic_client_id')) {
       setClientIdStatus('client_id найден ранее, обновится автоматически при ошибке ✓');
