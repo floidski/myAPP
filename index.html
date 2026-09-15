@@ -142,7 +142,13 @@
     .search-field-box input { background: transparent; border: none; outline: none; color: #fff; font-size: 14px; width: 100%; }
     .search-field-box input::placeholder { color: var(--text-sub); }
 
-    .search-hint { font-size: 12px; color: var(--text-sub); text-align: center; margin-top: 20px; }
+    .song-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 440px; }
+    .song-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,0.035); cursor: pointer; transition: background 0.2s; }
+    .song-card:hover { background: rgba(255,255,255,0.08); }
+    .song-card img { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; }
+    .song-card-text { flex: 1; overflow: hidden; }
+    .song-card-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .song-card-artist { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
 
     /* Плейлисты */
     .playlist-mosaic { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -209,15 +215,15 @@
         </div>
       </div>
 
-      <!-- Поиск по названию (через виджет-запрос) -->
+      <!-- Поиск по названию с выдачей списка -->
       <div class="screen-view" id="screen-search">
-        <div class="view-heading">Поиск трека</div>
+        <div class="view-heading">Поиск SoundCloud</div>
         <div class="search-field-box">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-sub)"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" id="inputSearch" placeholder="Введите название трека и нажмите Enter...">
+          <input type="text" id="inputSearch" placeholder="Введите название и нажмите Enter...">
         </div>
-        <div class="search-hint">
-          Введите название исполнителя или песни в строку поиска и нажмите <b>Enter</b> на клавиатуре. Плеер автоматически найдет и включит первый подходящий трек из SoundCloud!
+        <div class="song-list" id="searchResults">
+          <div style="text-align:center; padding:30px; color:var(--text-sub); font-size:13px;">Введите название трека и нажмите Enter для поиска.</div>
         </div>
       </div>
 
@@ -292,6 +298,7 @@
     const labelTotalTime = document.getElementById('labelTotalTime');
     const volumeControl = document.getElementById('volumeControl');
     const inputSearch = document.getElementById('inputSearch');
+    const searchResults = document.getElementById('searchResults');
     const miniBar = document.getElementById('miniBar');
 
     let totalDurationMs = 0;
@@ -338,38 +345,74 @@
 
     volumeControl.addEventListener('input', (e) => widget.setVolume(e.target.value));
 
-    // Поиск по названию трека через встроенный метод виджета (без ошибок сети)
-    inputSearch.addEventListener('keydown', (e) => {
+    // Поиск по названию через безопасный прокси без ошибок сети
+    inputSearch.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
         const query = inputSearch.value.trim();
         if (!query) return;
 
-        // Передаем текстовый запрос в виджет SoundCloud
-        widget.load('https://soundcloud.com/search?q=' + encodeURIComponent(query), {
-          auto_play: true,
-          callback: () => {
-            widget.getDuration((d) => { totalDurationMs = d; labelTotalTime.textContent = formatTime(d); });
-            widget.getCurrentSound((s) => {
-              if (s) {
-                const tTitle = s.title || query;
-                const tArtist = s.user ? s.user.username : 'SoundCloud Search';
-                const art = s.artwork_url ? s.artwork_url.replace('-large', '-t500x500.jpg') : 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=800';
-                
-                trackTitle.textContent = tTitle;
-                trackArtist.textContent = tArtist;
-                artImage.src = art;
-                artGlow.style.backgroundImage = `url('${art}')`;
-                miniTitle.textContent = tTitle;
-                miniArtist.textContent = tArtist;
-                miniCover.src = art;
-              }
-            });
-            // Автоматически переходим на экран плеера
-            document.querySelector('[data-view="screen-player"]').click();
+        searchResults.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Ищем в SoundCloud...</div>';
+
+        try {
+          // Публичный client_id SoundCloud
+          const clientId = 'iYF11A7p5p0a2948a47hZ54200h85b37';
+          const apiUrl = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=${clientId}&limit=12`;
+          // Запрос через бесплатный прокси для обхода CORS/HTTPS блокировок GitHub Pages
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl)}`;
+
+          const response = await fetch(proxyUrl);
+          const wrapper = await response.json();
+          const data = JSON.parse(wrapper.contents);
+
+          if (!data.collection || data.collection.length === 0) {
+            searchResults.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Ничего не найдено</div>';
+            return;
           }
-        });
+
+          // Отрисовываем список найденных треков
+          searchResults.innerHTML = data.collection.map((t) => {
+            const title = t.title.replace(/"/g, '&quot;');
+            const artist = t.user ? t.user.username.replace(/"/g, '&quot;') : 'Unknown';
+            const cover = t.artwork_url ? t.artwork_url.replace('-large', '-t500x500.jpg') : 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=800';
+            const permalink = t.permalink_url;
+
+            return `
+              <div class="song-card" onclick="playSelectedTrack('${permalink}', '${title}', '${artist}', '${cover}')">
+                <img src="${cover}" alt="Art">
+                <div class="song-card-text">
+                  <div class="song-card-title">${title}</div>
+                  <div class="song-card-artist">${artist}</div>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text-sub)"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+            `;
+          }).join('');
+
+        } catch (err) {
+          searchResults.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-sub);">Ошибка сети (проверьте VPN)</div>';
+        }
       }
     });
+
+    // Запуск выбранного из списка трека
+    window.playSelectedTrack = function(url, title, artist, cover) {
+      widget.load(url, {
+        auto_play: true,
+        callback: () => {
+          widget.getDuration((d) => { totalDurationMs = d; labelTotalTime.textContent = formatTime(d); });
+          
+          trackTitle.textContent = title;
+          trackArtist.textContent = artist;
+          artImage.src = cover;
+          artGlow.style.backgroundImage = `url('${cover}')`;
+          miniTitle.textContent = title;
+          miniArtist.textContent = artist;
+          miniCover.src = cover;
+
+          document.querySelector('[data-view="screen-player"]').click();
+        }
+      });
+    };
 
     // Плейлисты-подборки
     const playlists = [
