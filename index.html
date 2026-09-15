@@ -142,13 +142,7 @@
     .search-field-box input { background: transparent; border: none; outline: none; color: #fff; font-size: 14px; width: 100%; }
     .search-field-box input::placeholder { color: var(--text-sub); }
 
-    .song-list { display: flex; flex-direction: column; gap: 8px; }
-    .song-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,0.035); cursor: pointer; transition: background 0.2s; }
-    .song-card:hover { background: rgba(255,255,255,0.08); }
-    .song-card img { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; }
-    .song-card-text { flex: 1; overflow: hidden; }
-    .song-card-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .song-card-artist { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
+    .search-hint { font-size: 12px; color: var(--text-sub); text-align: center; margin-top: 20px; }
 
     /* Плейлисты */
     .playlist-mosaic { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -215,18 +209,15 @@
         </div>
       </div>
 
-      <!-- Поиск (вставка ссылки SC) -->
+      <!-- Поиск по названию (через виджет-запрос) -->
       <div class="screen-view" id="screen-search">
-        <div class="view-heading">Поиск SoundCloud</div>
+        <div class="view-heading">Поиск трека</div>
         <div class="search-field-box">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-sub)"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" id="inputSearch" placeholder="Вставьте ссылку на трек SoundCloud...">
+          <input type="text" id="inputSearch" placeholder="Введите название трека и нажмите Enter...">
         </div>
-        <div class="song-list" id="searchResults">
-          <div style="padding:15px; color:var(--text-sub); font-size:12.5px; line-height:1.5;">
-            💡 <b>Как искать музыку:</b><br>
-            В поисковую строку SoundCloud скопируйте и вставьте прямую ссылку на любой трек (например: <code>https://soundcloud.com/artist/track-name</code>), и он сразу начнет играть!
-          </div>
+        <div class="search-hint">
+          Введите название исполнителя или песни в строку поиска и нажмите <b>Enter</b> на клавиатуре. Плеер автоматически найдет и включит первый подходящий трек из SoundCloud!
         </div>
       </div>
 
@@ -347,18 +338,21 @@
 
     volumeControl.addEventListener('input', (e) => widget.setVolume(e.target.value));
 
-    // Загрузка трека по ссылке из поиска
-    inputSearch.addEventListener('input', (e) => {
-      const val = e.target.value.trim();
-      if (val.includes('soundcloud.com/')) {
-        widget.load(val, {
+    // Поиск по названию трека через встроенный метод виджета (без ошибок сети)
+    inputSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const query = inputSearch.value.trim();
+        if (!query) return;
+
+        // Передаем текстовый запрос в виджет SoundCloud
+        widget.load('https://soundcloud.com/search?q=' + encodeURIComponent(query), {
           auto_play: true,
           callback: () => {
             widget.getDuration((d) => { totalDurationMs = d; labelTotalTime.textContent = formatTime(d); });
             widget.getCurrentSound((s) => {
               if (s) {
-                const tTitle = s.title || 'Трек SoundCloud';
-                const tArtist = s.user ? s.user.username : 'Unknown';
+                const tTitle = s.title || query;
+                const tArtist = s.user ? s.user.username : 'SoundCloud Search';
                 const art = s.artwork_url ? s.artwork_url.replace('-large', '-t500x500.jpg') : 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=800';
                 
                 trackTitle.textContent = tTitle;
@@ -370,6 +364,7 @@
                 miniCover.src = art;
               }
             });
+            // Автоматически переходим на экран плеера
             document.querySelector('[data-view="screen-player"]').click();
           }
         });
